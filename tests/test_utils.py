@@ -37,6 +37,48 @@ class TestUtils(unittest.TestCase):
                     self.assertEqual(fw.file.read(), 'Hello test')
                     self.assertEqual(fw.file.encoding, encoding)
 
+    def test_atomic_write_keeps_existing_file_if_replace_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / 'captions.vtt'
+            path.write_bytes(b'old')
+            with mock.patch('webvtt.utils.os.replace',
+                            side_effect=OSError('replace failed')) as replace:
+                with self.assertRaisesRegex(OSError, 'replace failed'):
+                    _write_text_file(path, 'new', 'utf-8')
+
+            candidate, target = map(pathlib.Path, replace.call_args.args)
+            self.assertEqual(target, path.resolve())
+            self.assertFalse(candidate.exists())
+            self.assertEqual(path.read_bytes(), b'old')
+            self.assertEqual(list(path.parent.iterdir()), [path])
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX modes and links')
+    def test_atomic_write_preserves_symlink_and_permissions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / 'captions.vtt'
+            target.write_bytes(b'old')
+            target.chmod(0o640)
+            link = target.with_name('subtitles.vtt')
+            link.symlink_to(target.name)
+
+            _write_text_file(link, 'new', 'utf-8')
+
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(target.stat().st_mode & 0o777, 0o640)
+            self.assertEqual(link.read_bytes(), b'new')
+
+    @unittest.skipUnless(os.name == 'posix', 'POSIX hard links')
+    def test_atomic_write_updates_existing_hard_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = pathlib.Path(directory) / 'captions.vtt'
+            target.write_bytes(b'old')
+            link = target.with_name('subtitles.vtt')
+            os.link(target, link)
+
+            _write_text_file(target, 'new', 'utf-8')
+
+            self.assertEqual(link.read_bytes(), b'new')
+
     def test_write_text_file(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = pathlib.Path(temp_dir) / 'captions.vtt'

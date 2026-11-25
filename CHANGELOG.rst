@@ -6,6 +6,14 @@ Unreleased
 
 Changes that may need updates to the code using the library:
 
+* Path-based caption saves and HLS output replace each regular file only after
+  writing the complete replacement in its destination directory. Reopen the
+  path to read the replacement; an already-open descriptor can still refer to
+  the old file. Existing read/write/execute mode bits are kept and symbolic
+  links are followed, but inode metadata such as ownership and ACLs is not
+  copied. Hard-linked files and special files are written in place as before.
+  HLS replacement is atomic per file, not for a whole playlist and its segments.
+
 * Voice names have leading and trailing ASCII whitespace stripped and runs of ASCII whitespace collapsed to a single space, only ASCII whitespace ends the name of a cue tag, so a no-break space after ``<v`` does not start a voice name, and voice spans can have classes with any character, as in ``<v.lo-ud Bob>``. Cue tags are read across line breaks in ``text``, ``voice``, ``voices`` and when reading and writing SRT, joining the lines that a tag spans in ``text`` and in SRT and SBV output, also with ``keep_formatting``, and a ``<`` on one line with a ``>`` on a later one is read as a tag, leaving out the text between them (#221, #223, #241)
 
 Changes:

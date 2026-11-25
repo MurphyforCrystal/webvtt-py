@@ -1,5 +1,6 @@
 import os
 import unittest
+from unittest import mock
 import tempfile
 import pathlib
 import textwrap
@@ -24,6 +25,19 @@ class TestSegmenter(unittest.TestCase):
     def read_folder(self, folder):
         return {path.name: path.read_text()
                 for path in pathlib.Path(folder).iterdir()}
+
+    def test_failed_segment_replacement_keeps_destination(self):
+        destination = pathlib.Path(self.temp_dir.name)
+        source = PATH_TO_SAMPLES / 'sample.vtt'
+        segmenter.segment(source, destination)
+        before = self.read_folder(destination)
+
+        with mock.patch('webvtt.utils.os.replace',
+                        side_effect=OSError('replace failed')):
+            with self.assertRaisesRegex(OSError, 'replace failed'):
+                segmenter.segment(source, destination, overwrite=True)
+
+        self.assertEqual(self.read_folder(destination), before)
 
     def test_segmentation_with_defaults(self):
         segmenter.segment(PATH_TO_SAMPLES / 'sample.vtt', self.temp_dir.name)

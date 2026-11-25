@@ -4,6 +4,8 @@ import locale
 import os
 import re
 import codecs
+import stat
+import tempfile
 from collections.abc import Generator, Iterable
 
 CODEC_BOMS = {
@@ -171,8 +173,46 @@ def _write_text_file(
         encoding = locale.getpreferredencoding(False)
 
     data = text.replace('\n', os.linesep).encode(encoding)
-    with open(file_path, 'wb') as f:
-        f.write(data)
+    _write_bytes_file(file_path, data)
+
+
+def _write_bytes_file(file_path: _Path, data: bytes) -> None:
+    """
+    Write complete bytes before replacing a regular file.
+
+    Preserve the target's permission bits and follow symbolic links.
+    Devices, pipes and multiply-linked files keep their in-place behavior.
+
+    :param file_path: path to the file
+    :param data: bytes to write
+    """
+    target = os.path.realpath(file_path)
+    try:
+        old = os.stat(target)
+    except FileNotFoundError:
+        old = None
+
+    if old is not None and (not stat.S_ISREG(old.st_mode) or old.st_nlink > 1):
+        with open(target, 'wb') as f:
+            f.write(data)
+        return
+
+    if old is not None:
+        # Check the same write permission as an in-place save, without
+        # truncating the existing file.
+        os.close(os.open(target, os.O_WRONLY))
+
+    # A private staging directory lets open() apply the normal umask to new
+    # files, without temporarily changing the process-wide umask.
+    with tempfile.TemporaryDirectory(
+            dir=os.path.dirname(target), prefix='.webvtt-'
+            ) as staging:
+        temporary = os.path.join(staging, 'output')
+        with open(temporary, 'xb') as f:
+            f.write(data)
+        if old is not None:
+            os.chmod(temporary, old.st_mode & 0o777)
+        os.replace(temporary, target)
 
 
 def iter_blocks_of_lines(
